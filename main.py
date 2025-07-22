@@ -1,53 +1,42 @@
-from langchain_core.prompts import PromptTemplate
-from langchain_community.llms import Ollama
-from langchain_core.runnables import RunnableMap
+from sqlalchemy import create_engine, text
+import pandas as pd
 
-# Initialize local Gemma model from Ollama
-llm = Ollama(model="gemma")
+def run_sql_query(engine, question):
+    with engine.connect() as conn:
+        if "largest balance" in question.lower():
+            result = conn.execute(text("SELECT * FROM users ORDER BY balance DESC LIMIT 1"))
+            df = pd.DataFrame(result.fetchall(), columns=result.keys())
+            return f"The row with the largest balance is: {df.to_dict(orient='records')[0]}"
+        elif "average balance" in question.lower() and "older than" in question.lower():
+            age = int("".join([c for c in question if c.isdigit()]))
+            result = conn.execute(text(f"SELECT AVG(balance) FROM users WHERE age > {age}"))
+            avg = result.scalar()
+            return f"The average balance for users older than {age} is {avg:.2f}"
+        elif "average balance" in question.lower():
+            result = conn.execute(text("SELECT AVG(balance) FROM users"))
+            avg = result.scalar()
+            return f"The average balance is {avg:.2f}"
+        else:
+            return "Sorry, I don't know how to answer that yet."
 
-# Step 1: Prompt to extract intents
-intent_prompt = PromptTemplate.from_template("""
-You are a helpful assistant. Break this instruction into separate tasks, if there are more than one.
-Instruction: {input}
-Return only a numbered list of tasks.
-""")
+def main():
+    # Connect to PostgreSQL
+    engine = create_engine("postgresql+psycopg2://chatbot_user:asdfasdf@localhost:5432/chatbot1")
 
-intent_chain = intent_prompt | llm
+    # Initialize LLM
+    from langchain_community.llms import Ollama
+    llm = Ollama(model="gemma:2b")
 
-# Step 2: Task handlers (simple logic for now)
-def handle_intent(task: str, doc: str):
-    if "summarize" in task.lower():
-        return llm.invoke(f"Summarize this: {doc}")
-    elif "risk" in task.lower():
-        return llm.invoke(f"Does this text mention any risks? Be specific: {doc}")
-    else:
-        return f"Unknown task: {task}"
+    while True:
+        question = input("Ask a question (or type 'exit' to quit): ")
+        if question.lower() in ["exit", "quit"]:
+            break
+        try:
+            context = run_sql_query(engine, question)
+            print("Answer:", llm.invoke(f"Answer the question based on this data:\n{context}\n\nQ: {question}"))
+        except Exception as e:
+            print("Error:", e)
 
-# Full chain
-def multi_intent_runner(user_input: str, doc: str):
-    task_list_output = intent_chain.invoke({"input": user_input})
-    
-    print("\n🧠 Detected Tasks:\n", task_list_output)
 
-    # Clean task list
-    tasks = [line.strip()[3:] for line in task_list_output.split("\n") if line.strip().startswith("1.") or line.strip()[0].isdigit()]
-    
-    print("\n🔍 Handling Tasks:")
-    results = []
-    for task in tasks:
-        print(f"- {task}")
-        result = handle_intent(task, doc)
-        results.append(f"{task}\n➡️ {result.strip()}\n")
-    
-    return "\n".join(results)
-
-# === Run Demo ===
 if __name__ == "__main__":
-    user_query = "Summarize this paragraph and tell me if it mentions any risks."
-    document = """
-    Our Q2 financial report indicates stable revenue in most regions, but Southeast Asia faced
-    operational delays due to regulatory issues. This may affect projected growth by 5% if not resolved.
-    """
-
-    response = multi_intent_runner(user_query, document)
-    print("\n📝 Final Output:\n", response)
+    main()
