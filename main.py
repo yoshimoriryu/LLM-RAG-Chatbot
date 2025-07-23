@@ -1,5 +1,11 @@
 from sqlalchemy import create_engine, text
 import pandas as pd
+import os
+from dotenv import load_dotenv
+
+load_dotenv()
+
+DATABASE_URI = os.getenv('DATABASE_URI')
 
 def run_sql_query(engine, question):
     with engine.connect() as conn:
@@ -21,7 +27,8 @@ def run_sql_query(engine, question):
 
 def main():
     # Connect to PostgreSQL
-    engine = create_engine("postgresql+psycopg2://chatbot_user:asdfasdf@localhost:5432/chatbot1")
+    print(DATABASE_URI)
+    engine = create_engine(DATABASE_URI)
 
     # Initialize LLM
     from langchain_community.llms import Ollama
